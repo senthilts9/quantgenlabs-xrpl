@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash(*)",
+      "Bash(git push:*)",
+      "Bash(git push --force:*)"
+    ],
+    "deny": []
+  }
+}
