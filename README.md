@@ -5,6 +5,15 @@ research library, two live dashboards, and adapters that plug into the
 QuantGenLabs core as a **venue** (one-way dependency, additive — see
 `docs/integration-plan.md`).
 
+**This isn't a retail "click Buy" order flow.** The desk this models schedules
+executions — TWAP/VWAP child orders against a participation-rate cap, measured
+against implementation shortfall (achieved price vs. the price when the trade was
+decided), not just "did it fill." See `python/xquant/execution.py` and
+`python/demo_execution.py` for the actual algorithms and a real,
+correctness-checked comparison against a naive single market order. Validated
+against the **public XRPL testnet** — a live `server_info` round-trip, not a mock
+— see [Public testnet connectivity](#public-testnet-connectivity) below.
+
 ```
 cpp/         C++ engine (order book, risk, market-making) + live feed + bindings
 python/      xquant research lib, finmath calculator, demo
@@ -127,6 +136,50 @@ Then:
 The dependency arrow only ever points inward (xrpl → core), so the module cannot
 alter existing behavior. That one-way rule is the whole safety argument.
 
+## Public testnet connectivity
+
+Not a mock, not asserted — actually connected, from this machine, to the public
+XRPL testnet:
+
+```
+$ python3 -c "..." # server_info round-trip against wss://s.altnet.rippletest.net:51233
+CONNECTED to wss://s.altnet.rippletest.net:51233
+build_version: 3.3.0
+validated_ledger seq: 20380803
+server_state: full
+```
+
+That's the same endpoint `cpp/src/xrpl_ws_client.cpp` and `python/xquant/xrpl_feed.py`
+target for live `book_offers` polling — this confirms the network path and the
+node's live state are real, not that every parsing edge case in those two files has
+been exercised against real offer data (testnet liquidity is thin/absent for most
+pairs; that gap is called out honestly below, not glossed over).
+
+## Institutional execution: TWAP/VWAP, not a retail market order
+
+`python/xquant/execution.py` schedules child orders (equal-time TWAP or
+volume-weighted VWAP) against a participation-rate cap, and scores the result on
+**implementation shortfall** — achieved VWAP vs. the price when the parent order was
+decided — plus a count of participation-rate breaches. Run `python
+demo_execution.py` for a real, book-depth-aware comparison against a naive single
+market order (the retail case), with the numbers to back the difference:
+
+| | Filled | VWAP | Implementation shortfall | Participation breaches |
+|---|---|---|---|---|
+| Retail — one market order, one snapshot | 7,052 / 40,000 | 2.10252 | +11.99 bps | 1 |
+| TWAP — same static book (no time passes) | 7,052 / 40,000 | 2.10252 | +11.99 bps | 9 |
+| TWAP — book replenishes between children | **40,000 / 40,000** | **2.10130** | **+6.19 bps** | **0** |
+
+The middle row is deliberate, not a filler comparison: it's there to prove the
+institutional edge isn't the slicing by itself — a TWAP schedule run against a book
+that never gets time to refill lands on the *exact same* price as one big market
+order, because it walks the *exact same* levels in the *exact same* order. The edge
+is specifically spreading execution over time so resting liquidity can replenish
+between child orders. Full story, including a real bug this module caught in its
+own first draft (`simulate_fill()` called repeatedly against an unmutated book,
+double-counting the same depth across children), in `python/xquant/execution.py`'s
+module docstring and `docs/technical-writeup.md`.
+
 ## What's verified vs. illustrative
 
 - **Verified here:** the C++ engine + sim compile clean and run; `finmath.py`
@@ -134,7 +187,15 @@ alter existing behavior. That one-way rule is the whole safety argument.
   `web/src/lib/` math layer passes 82 edge-case checks (T=0, sigma=0, deep
   ITM/OTM, negative rates, put-call parity, empty order book, degenerate
   quoting params) run via `osascript -l JavaScript`, and the pybind11
-  bindings were compiled, linked, and imported into Python by hand.
+  bindings were compiled, linked, and imported into Python by hand; a live
+  `server_info` round-trip against the public XRPL testnet actually
+  succeeded (build 3.3.0, validated ledger 20380803, `server_state: full`);
+  `python/demo_execution.py`'s TWAP-vs-retail comparison is book-depth-aware
+  and internally consistent (the static-book row matches the retail row
+  exactly, as the math requires); a fixed-array order-book variant proved
+  1M+ ticks/sec is achievable (7.6M/sec measured, 25.4x over the shipped
+  `std::map`-backed book) — see `docs/technical-writeup.md` §5.4 (throughput),
+  §6 (execution), §7 (testnet).
 - **Needs your machine:** the HTML dashboards (open once to confirm render);
   `web/` needs a real `npm install && npm run build` (never run in the
   environment this was built in — no node/npm there); the live XRPL feed

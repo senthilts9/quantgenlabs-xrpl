@@ -337,7 +337,68 @@ built-in JavaScriptCore (`osascript -l JavaScript`) — this machine has no `nod
 installed, so this is real math coverage, not a substitute for `npm install && npm
 run build` actually succeeding (which has not been run here — see `web/README.md`).
 
-## 6 · Methodology & reproducing these numbers
+## 6 · Institutional execution: TWAP/VWAP, not a retail market order
+
+`python/xquant/execution.py` schedules child orders — equal-time TWAP or
+volume-weighted VWAP — against a live `OrderBook`, and scores the result on the
+metrics an institutional desk actually cares about: **implementation shortfall**
+(achieved VWAP vs. the price when the parent order was decided, in bps) and a count
+of **participation-rate breaches** (child orders the book couldn't absorb in full).
+That's the concrete difference from a retail order: one market order for the whole
+size, no schedule, no shortfall tracked, no participation cap.
+
+**A real bug in the first draft, caught by testing it rather than trusting the
+design:** the initial version called `OrderBook.simulate_fill()` for each sequential
+child order. `simulate_fill()` is deliberately read-only — the right contract for a
+"what would happen right now" query — but calling it repeatedly against the *same*
+unmutated book let every child order see the full original depth again, double- and
+triple-counting the same resting liquidity. A 40,000 XRP TWAP schedule "filled"
+completely against a book that only had 13,500 XRP of actual depth. Fixed by adding
+`OrderBook.take()`, a mutating counterpart that actually consumes what it walks, and
+pointing `execution.py` at that for sequential fills.
+
+**Fixing that surfaced a more interesting, genuinely correct result, kept in
+`python/demo_execution.py` rather than smoothed over:** TWAP against a *static,
+non-replenishing* book provides **no benefit at all** over one retail-style market
+order — both walk the identical price levels in the identical order and land on the
+identical VWAP. Demonstrated three ways, same starting book, same 40,000 XRP:
+
+| | Filled | VWAP | Implementation shortfall | Participation breaches |
+|---|---|---|---|---|
+| Retail — one market order, one snapshot | 7,052 / 40,000 | 2.10252 | +11.99 bps | 1 |
+| TWAP — same static book (no time passes) | 7,052 / 40,000 | 2.10252 | +11.99 bps | 9 |
+| TWAP — book replenishes between children | **40,000 / 40,000** | **2.10130** | **+6.19 bps** | **0** |
+
+Row 2 matching row 1 *exactly* is the point, not a coincidence to explain away: it
+proves the institutional edge isn't the slicing by itself. It's spreading execution
+over time so resting liquidity can refill between child orders — row 3 is what
+happens once that assumption is actually true. Run `python demo_execution.py` to
+reproduce all three rows.
+
+## 7 · Public testnet connectivity
+
+Validated live, not asserted — a real `server_info` round-trip against the public
+XRPL testnet, from the same machine and environment everything else in this
+document was measured on:
+
+```
+$ python3 -c "... websockets.connect('wss://s.altnet.rippletest.net:51233') ..."
+CONNECTED to wss://s.altnet.rippletest.net:51233
+build_version: 3.3.0
+validated_ledger seq: 20380803
+server_state: full
+```
+
+That's the same endpoint `cpp/src/xrpl_ws_client.cpp` and `python/xquant/xrpl_feed.py`
+target for live `book_offers` polling. Honest scope: this confirms the network path
+and the node's live state are real — it does not mean every parsing edge case in
+those two files has been exercised against real offer data. XRPL testnet has thin or
+absent organic liquidity for most pairs, so a `book_offers` response for an
+arbitrary pair may legitimately come back empty; that's a property of testnet, not a
+bug in the parsing code, but it does mean the `quality`→price normalization in both
+files is unverified against a real non-empty response as of this writing.
+
+## 8 · Methodology & reproducing these numbers
 
 ```
 macOS 13.0 (22A380), x86_64
