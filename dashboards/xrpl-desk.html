@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>XRPL Desk — market-making terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- xrpl.js for LIVE mode. Blocked in some sandboxes; SIM mode never needs it. -->
+<script src="https://unpkg.com/xrpl@4.1.0/build/xrpl-latest-min.js" onerror="window.__noXrpl=true"></script>
+<style>
+  :root{
+    --ink:#0B1220; --panel:#111A2B; --panel2:#0E1626; --line:#1E2B41;
+    --text:#E6EDF5; --muted:#8A97AB; --dim:#5A6B85;
+    --bid:#3DD68C; --ask:#F0616D; --quote:#E8B84B; --accent:#5B8DEF;
+    --bid-dim:rgba(61,214,140,.14); --ask-dim:rgba(240,97,109,.14);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(91,141,239,.10), transparent 60%),
+      var(--ink);
+    color:var(--text); font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:13px; -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.disp{font-family:"Space Grotesk",system-ui,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 20px 40px}
+
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:18px}
+  .brand{display:flex;align-items:baseline;gap:10px}
+  .brand h1{font-size:20px;font-weight:600;letter-spacing:-.02em;margin:0}
+  .brand .tick{color:var(--accent);font-weight:600}
+  .brand small{color:var(--muted);font-weight:400}
+  .spacer{flex:1}
+  .pill{display:flex;align-items:center;gap:8px;background:var(--panel);
+    border:1px solid var(--line);border-radius:999px;padding:5px 6px}
+  .pill button{all:unset;cursor:pointer;padding:5px 12px;border-radius:999px;
+    color:var(--muted);font-size:12px;font-weight:500;transition:.18s}
+  .pill button[aria-pressed="true"]{background:var(--accent);color:#06101f}
+  input[type=text]{background:var(--panel2);border:1px solid var(--line);
+    color:var(--text);font-family:inherit;font-size:12px;border-radius:8px;
+    padding:7px 9px}
+  .go{all:unset;cursor:pointer;background:var(--quote);color:#1a1204;
+    font-weight:600;padding:8px 16px;border-radius:8px;font-size:12px}
+  .go[disabled]{opacity:.4;cursor:not-allowed}
+  .status{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .dot.live{background:var(--bid);box-shadow:0 0 0 3px rgba(61,214,140,.18)}
+  .dot.sim{background:var(--accent);box-shadow:0 0 0 3px rgba(91,141,239,.18)}
+
+  .grid{display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:14px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px 15px;min-height:0}
+  .card h3{margin:0 0 12px;font-size:12px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);display:flex;
+    justify-content:space-between;align-items:center}
+  .card h3 .aux{color:var(--dim);font-weight:400;letter-spacing:0;text-transform:none}
+
+  /* ladder */
+  .ladder{display:flex;flex-direction:column;gap:2px}
+  .row{position:relative;display:grid;grid-template-columns:1fr 1fr auto;
+    align-items:center;padding:3px 8px;border-radius:5px;font-size:12px;
+    font-variant-numeric:tabular-nums}
+  .row .bar{position:absolute;top:0;bottom:0;border-radius:5px;z-index:0}
+  .row.ask .bar{right:0;background:var(--ask-dim)}
+  .row.bid .bar{right:0;background:var(--bid-dim)}
+  .row span{position:relative;z-index:1}
+  .row .px{font-weight:600}
+  .row.ask .px{color:var(--ask)} .row.bid .px{color:var(--bid)}
+  .row .sz{color:var(--muted);text-align:right}
+  .row .cum{color:var(--dim);text-align:right;font-size:11px}
+  .midrow{display:flex;justify-content:space-between;align-items:center;
+    padding:8px 8px;margin:4px 0;border-top:1px dashed var(--line);
+    border-bottom:1px dashed var(--line)}
+  .midrow .m{font-family:"Space Grotesk";font-size:19px;font-weight:600}
+  .midrow .s{color:var(--muted);font-size:12px}
+  .qmark{color:var(--quote);font-weight:600}
+
+  /* metric blocks */
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .metric{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:10px 11px}
+  .metric .k{color:var(--muted);font-size:11px;letter-spacing:.03em}
+  .metric .v{font-family:"Space Grotesk";font-size:18px;font-weight:600;margin-top:3px;
+    font-variant-numeric:tabular-nums}
+  .metric .v.small{font-size:15px}
+  .pos{color:var(--bid)} .neg{color:var(--ask)}
+  .gauge{height:6px;border-radius:3px;background:var(--panel2);margin-top:8px;
+    overflow:hidden;border:1px solid var(--line)}
+  .gauge > i{display:block;height:100%;background:linear-gradient(90deg,var(--ask),var(--dim),var(--bid))}
+
+  /* market making */
+  .mm{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;align-items:center}
+  @media(max-width:900px){.mm{grid-template-columns:1fr}}
+  .sliders label{display:block;color:var(--muted);font-size:12px;margin:0 0 4px}
+  .sliders .val{color:var(--text);float:right;font-weight:600}
+  .sliders input[type=range]{width:100%;margin:0 0 14px;accent-color:var(--accent)}
+  .quotebox{display:flex;gap:10px}
+  .quotebox .q{flex:1;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:12px;text-align:center}
+  .quotebox .q .lab{font-size:11px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+  .quotebox .q .p{font-family:"Space Grotesk";font-size:20px;font-weight:700;margin-top:4px}
+  .quotebox .q.bid .p{color:var(--bid)} .quotebox .q.ask .p{color:var(--ask)}
+  .quotebox .q .d{font-size:11px;color:var(--dim);margin-top:3px}
+  .mmfoot{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{all:unset;cursor:pointer;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:7px 12px;font-size:12px;color:var(--text);font-weight:500}
+  .btn:hover{border-color:var(--accent)}
+  .note{color:var(--dim);font-size:11px}
+
+  /* chart */
+  .chartcard{margin-top:14px}
+  canvas{width:100%;height:120px;display:block}
+  .legend{display:flex;gap:16px;color:var(--muted);font-size:11px;margin-top:6px}
+  .legend i{display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:5px}
+
+  .banner{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:9px 12px;color:var(--muted);font-size:12px;margin-bottom:14px}
+  .banner b{color:var(--text)}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>XRPL Desk <span class="tick">·</span> <small>market-making terminal</small></h1>
+    </div>
+    <div class="spacer"></div>
+    <div class="pill" role="group" aria-label="Data source">
+      <button id="mSim" aria-pressed="true">Simulated</button>
+      <button id="mLive" aria-pressed="false">Live testnet</button>
+    </div>
+    <div class="status"><span class="dot sim" id="dot"></span><span id="statusTxt">simulated feed</span></div>
+  </header>
+
+  <div class="banner" id="banner">
+    <b>Simulated</b> XRP/RLUSD book — runs anywhere. Switch to <b>Live testnet</b> to
+    stream a real book via <b>xrpl.js</b> (open this file locally; set a token pair below).
+  </div>
+
+  <div id="liveControls" style="display:none;margin-bottom:14px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="ccy" size="30" value="524C555344000000000000000000000000000000" title="Quote currency (40-hex)"/>
+      <input type="text" id="issuer" size="34" value="" placeholder="issuer r-address (your testnet token)"/>
+      <button class="go" id="connect">Connect to testnet</button>
+      <span class="note">endpoint wss://s.altnet.rippletest.net:51233 · re-polls each ledger close</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- ORDER BOOK -->
+    <section class="card">
+      <h3>Order book <span class="aux" id="pairLbl">XRP / RLUSD</span></h3>
+      <div class="ladder" id="ladder"></div>
+    </section>
+
+    <!-- MICROSTRUCTURE -->
+    <section class="card">
+      <h3>Microstructure</h3>
+      <div class="metrics">
+        <div class="metric"><div class="k">Mid</div><div class="v" id="mMid">—</div></div>
+        <div class="metric"><div class="k">Microprice</div><div class="v" id="mMicro">—</div></div>
+        <div class="metric"><div class="k">Spread</div><div class="v small" id="mSpread">—</div></div>
+        <div class="metric"><div class="k">Depth ±10bps</div><div class="v small" id="mDepth">—</div></div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="metric">
+          <div class="k">Order-book imbalance (top 5) <span id="imbVal" style="float:right;font-weight:600"></span></div>
+          <div class="gauge"><i id="imbBar" style="width:50%"></i></div>
+          <div class="note" style="margin-top:6px">−1 ask-heavy · +1 bid-heavy · a short-horizon directional signal</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RISK -->
+    <section class="card">
+      <h3>Inventory &amp; risk <span class="aux">XRP leg</span></h3>
+      <div class="metrics">
+        <div class="metric"><div class="k">Inventory</div><div class="v small" id="rInv">0 XRP</div></div>
+        <div class="metric"><div class="k">Exposure</div><div class="v small" id="rExp">0</div></div>
+        <div class="metric"><div class="k">Unrealized PnL</div><div class="v small" id="rPnl">0</div></div>
+        <div class="metric"><div class="k">Vol (ann.)</div><div class="v small" id="rVol">—</div></div>
+        <div class="metric"><div class="k">VaR 99% <span class="note">param</span></div><div class="v small" id="rVar">—</div></div>
+        <div class="metric"><div class="k">CVaR 99% <span class="note">ES</span></div><div class="v small" id="rCvar">—</div></div>
+      </div>
+      <div class="note" style="margin-top:10px">Max drawdown <span id="rDD" style="color:var(--text)">0</span> · VaR &amp; CVaR scale with the XRP inventory carried across settlement.</div>
+    </section>
+  </div>
+
+  <!-- MARKET MAKING -->
+  <section class="card" style="margin-top:14px">
+    <h3>Optimal quoting — Avellaneda-Stoikov <span class="aux">reservation price skews with inventory</span></h3>
+    <div class="mm">
+      <div class="sliders">
+        <label>Risk aversion γ <span class="val" id="gVal">0.15</span></label>
+        <input type="range" id="gamma" min="0.02" max="0.6" step="0.01" value="0.15"/>
+        <label>Book liquidity κ <span class="val" id="kVal">1.5</span></label>
+        <input type="range" id="kappa" min="0.3" max="4" step="0.1" value="1.5"/>
+        <label>Horizon (T−t) <span class="val" id="tVal">1.0</span></label>
+        <input type="range" id="horizon" min="0.1" max="1" step="0.05" value="1"/>
+        <div class="mmfoot">
+          <button class="btn" id="buy">Get lifted (+8k XRP)</button>
+          <button class="btn" id="sell">Get hit (−8k XRP)</button>
+          <button class="btn" id="flat">Flatten</button>
+        </div>
+      </div>
+      <div>
+        <div class="quotebox">
+          <div class="q bid"><div class="lab">Our bid</div><div class="p" id="qBid">—</div><div class="d" id="qBidD"></div></div>
+          <div class="q ask"><div class="lab">Our ask</div><div class="p" id="qAsk">—</div><div class="d" id="qAskD"></div></div>
+        </div>
+        <div class="note" style="margin-top:10px;text-align:center">
+          reservation <span class="qmark" id="qResv">—</span> ·
+          skew <span id="qSkew" class="qmark">0.0 bps</span> vs mid ·
+          model spread <span id="qSpread" class="qmark">—</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHART -->
+  <section class="card chartcard">
+    <h3>Mid &amp; inventory <span class="aux">last 120 ticks</span></h3>
+    <canvas id="chart" width="1120" height="120"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>mid (RLUSD/XRP)</span>
+      <span><i style="background:var(--quote)"></i>inventory (XRP)</span>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Engine — same math as the C++/Python libraries, in the browser.
+// ---------------------------------------------------------------------------
+const Side = { BID:"bid", ASK:"ask" };
+
+const book = { bids:new Map(), asks:new Map() };
+function upsert(side, px, sz){
+  const m = side===Side.BID ? book.bids : book.asks;
+  if(sz<=0) m.delete(px); else m.set(px, sz);
+}
+function clearBook(){ book.bids.clear(); book.asks.clear(); }
+function sortedBids(){ return [...book.bids.entries()].sort((a,b)=>b[0]-a[0]); }
+function sortedAsks(){ return [...book.asks.entries()].sort((a,b)=>a[0]-b[0]); }
+function mid(){ const b=sortedBids(),a=sortedAsks(); return (b.length&&a.length)?(b[0][0]+a[0][0])/2:null; }
+function microprice(){ const b=sortedBids(),a=sortedAsks(); if(!b.length||!a.length)return null;
+  const [bp,bq]=b[0],[ap,aq]=a[0],t=bq+aq; return t<=0?(ap+bp)/2:(ap*bq+bp*aq)/t; }
+function spreadBps(){ const b=sortedBids(),a=sortedAsks(); if(!b.length||!a.length)return null;
+  return (a[0][0]-b[0][0])/((a[0][0]+b[0][0])/2)*1e4; }
+function imbalance(n=5){ const b=sortedBids().slice(0,n),a=sortedAsks().slice(0,n);
+  const vb=b.reduce((s,x)=>s+x[1],0),va=a.reduce((s,x)=>s+x[1],0),t=vb+va;
+  return t>0?(vb-va)/t:0; }
+function depthBps(bps){ const m=mid(); if(!m)return 0; let acc=0;
+  const lim=m*(1+bps/1e4); for(const[p,q] of sortedAsks()){ if(p>lim)break; acc+=q; }
+  const lo=m*(1-bps/1e4); for(const[p,q] of sortedBids()){ if(p<lo)break; acc+=q; } return acc; }
+
+// Risk
+const risk = { xrp:0, cash:0, cost:0, lambda:0.94, ewmaVar:0, last:0,
+               returns:[], peak:0, maxDD:0 };
+function onFill(signed, px){
+  const nx = risk.xrp + signed;
+  if((risk.xrp>=0)===(signed>=0) && nx!==0) risk.cost=(risk.cost*risk.xrp+px*signed)/nx;
+  else if(nx===0) risk.cost=0;
+  risk.xrp=nx; risk.cash-=signed*px;
+}
+function onMark(px){
+  if(risk.last>0){ const r=Math.log(px/risk.last); risk.returns.push(r);
+    if(risk.returns.length>512) risk.returns.shift();
+    risk.ewmaVar = risk.lambda*risk.ewmaVar + (1-risk.lambda)*r*r; }
+  risk.last=px; const eq=risk.cash+risk.xrp*px;
+  risk.peak=Math.max(risk.peak,eq); risk.maxDD=Math.max(risk.maxDD,risk.peak-eq);
+}
+const exposure = px => risk.xrp*px;
+const upnl = px => risk.xrp*(px-risk.cost);
+const volAnn = () => Math.sqrt(risk.ewmaVar*7.9e6);
+const varParam = (px,z=2.326) => Math.abs(exposure(px))*z*Math.sqrt(risk.ewmaVar);
+function quantile(arr,q){ const s=[...arr].sort((a,b)=>a-b); if(!s.length)return 0;
+  return s[Math.min(s.length-1,Math.floor(q*s.length))]; }
+function varHist(px,conf=0.99){ if(risk.returns.length<20)return 0;
+  return Math.abs(exposure(px))*Math.abs(quantile(risk.returns,1-conf)); }
+function cvar(px,conf=0.99){ if(risk.returns.length<20)return 0;
+  const th=quantile(risk.returns,1-conf); const tail=risk.returns.filter(r=>r<=th);
+  if(!tail.length)return 0; const m=tail.reduce((a,b)=>a+b,0)/tail.length;
+  return Math.abs(exposure(px))*Math.abs(m); }
+
+// Avellaneda-Stoikov
+let GAMMA=0.15, KAPPA=1.5, HORIZON=1.0;
+function quote(s, invUnits, sigma){
+  const vt = GAMMA*sigma*sigma*HORIZON;
+  const resv = s - invUnits*vt;
+  const spread = vt + (2/GAMMA)*Math.log1p(GAMMA/KAPPA);
+  return { bid:resv-spread/2, ask:resv+spread/2, resv, half:spread/2, skew:resv-s, spread };
+}
+
+// ---------------------------------------------------------------------------
+// Simulated feed
+// ---------------------------------------------------------------------------
+let simMid = 2.10, simTimer=null, live=null, mode="sim";
+function simTick(){
+  simMid *= Math.exp((Math.random()-0.5)*0.0016);
+  const half = simMid*0.0004; clearBook();
+  for(let l=0;l<8;l++){ const off=half+l*simMid*0.0003;
+    upsert(Side.BID, +(simMid-off).toFixed(6), 500+Math.random()*4500);
+    upsert(Side.ASK, +(simMid+off).toFixed(6), 500+Math.random()*4500); }
+  if(Math.random()<0.12){ const s=(Math.random()<0.5?-1:1)*(1500+Math.random()*5000);
+    const m=mid(); if(m) onFill(s,m); }
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// Live feed (xrpl.js) — only when opened locally with the library reachable
+// ---------------------------------------------------------------------------
+function amtSize(a){ return typeof a==="string" ? {sz:parseFloat(a)/1e6, xrp:true}
+                                                : {sz:parseFloat(a.value), xrp:false}; }
+function loadSide(side, offers){
+  for(const o of (offers||[])){ const g=amtSize(o.TakerGets);
+    let px=parseFloat(o.quality); if(g.xrp) px*=1e6;
+    if(g.sz>0&&px>0) upsert(side, px, g.sz); } }
+async function connectLive(){
+  if(window.__noXrpl || typeof xrpl==="undefined"){
+    setStatus("xrpl.js not reachable — open this file locally", false); return; }
+  const ccy=document.getElementById("ccy").value.trim();
+  const issuer=document.getElementById("issuer").value.trim();
+  if(!issuer){ setStatus("set an issuer r-address first", false); return; }
+  try{
+    live = new xrpl.Client("wss://s.altnet.rippletest.net:51233");
+    await live.connect(); setStatus("connected · testnet", true);
+    const bids={command:"book_offers",taker_gets:{currency:ccy,issuer},taker_pays:{currency:"XRP"},limit:50};
+    const asks={command:"book_offers",taker_gets:{currency:"XRP"},taker_pays:{currency:ccy,issuer},limit:50};
+    const refresh=async()=>{ clearBook();
+      const br=await live.request(bids); loadSide(Side.BID, br.result.offers);
+      const ar=await live.request(asks); loadSide(Side.ASK, ar.result.offers);
+      render(); };
+    await live.request({command:"subscribe",streams:["ledger"]});
+    live.on("ledgerClosed", refresh); await refresh();
+  }catch(e){ setStatus("connect failed: "+e.message, false); }
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+const $=id=>document.getElementById(id);
+const fmt=(x,d=4)=>x==null?"—":x.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt0=x=>x==null?"—":Math.round(x).toLocaleString();
+
+function render(){
+  const asks=sortedAsks().slice(0,8).reverse(), bids=sortedBids().slice(0,8);
+  const m=mid(), mp=microprice();
+  const maxSz=Math.max(1,...asks.map(a=>a[1]),...bids.map(b=>b[1]));
+  const q = m!=null ? quote(mp||m, risk.xrp/10000, Math.sqrt(risk.ewmaVar)||0.0007) : null;
+
+  // ladder with our-quote markers
+  let html="";
+  let cum=0;
+  for(const[p,s] of asks){ cum+=s; const w=(s/maxSz*100).toFixed(0);
+    const hit = q && Math.abs(p-q.ask) < (m*0.0002);
+    html+=`<div class="row ask"><span class="bar" style="width:${w}%"></span>
+      <span class="px">${fmt(p)}${hit?' <span class="qmark">◄ ask</span>':''}</span>
+      <span class="sz">${fmt0(s)}</span><span class="cum">${fmt0(cum)}</span></div>`; }
+  html+=`<div class="midrow"><span class="m">${fmt(m)}</span>
+    <span class="s">micro ${fmt(mp)} · spread ${m?fmt(spreadBps(),2):"—"} bps</span></div>`;
+  cum=0;
+  for(const[p,s] of bids){ cum+=s; const w=(s/maxSz*100).toFixed(0);
+    const hit = q && Math.abs(p-q.bid) < (m*0.0002);
+    html+=`<div class="row bid"><span class="bar" style="width:${w}%"></span>
+      <span class="px">${fmt(p)}${hit?' <span class="qmark">◄ bid</span>':''}</span>
+      <span class="sz">${fmt0(s)}</span><span class="cum">${fmt0(cum)}</span></div>`; }
+  $("ladder").innerHTML = html;
+
+  // microstructure
+  $("mMid").textContent=fmt(m); $("mMicro").textContent=fmt(mp);
+  $("mSpread").textContent=(m?fmt(spreadBps(),2):"—")+" bps";
+  $("mDepth").textContent=fmt0(depthBps(10))+" XRP";
+  const imb=imbalance(); $("imbVal").textContent=(imb>=0?"+":"")+imb.toFixed(3);
+  $("imbBar").style.width=((imb+1)/2*100).toFixed(0)+"%";
+
+  // risk
+  if(m!=null) onMark(mp||m);
+  $("rInv").textContent=fmt0(risk.xrp)+" XRP";
+  $("rInv").className="v small "+(risk.xrp>=0?"pos":"neg");
+  $("rExp").textContent=fmt0(exposure(m||0));
+  const pnl=upnl(m||0); $("rPnl").textContent=fmt0(pnl);
+  $("rPnl").className="v small "+(pnl>=0?"pos":"neg");
+  $("rVol").textContent=(volAnn()*100).toFixed(1)+"%";
+  $("rVar").textContent=fmt0(varParam(m||0));
+  $("rCvar").textContent=fmt0(cvar(m||0));
+  $("rDD").textContent=fmt0(risk.maxDD);
+
+  // quotes
+  if(q){
+    $("qBid").textContent=fmt(q.bid); $("qAsk").textContent=fmt(q.ask);
+    $("qResv").textContent=fmt(q.resv);
+    $("qSkew").textContent=(q.skew/(mp||m)*1e4).toFixed(1)+" bps";
+    $("qSpread").textContent=(q.spread/(mp||m)*1e4).toFixed(1)+" bps";
+    $("qBidD").textContent=((q.bid-(mp||m))/(mp||m)*1e4).toFixed(1)+" bps";
+    $("qAskD").textContent="+"+((q.ask-(mp||m))/(mp||m)*1e4).toFixed(1)+" bps";
+  }
+  pushChart(m, risk.xrp);
+}
+
+// tiny canvas chart
+const hist={mid:[],inv:[]};
+function pushChart(m,inv){ if(m==null)return; hist.mid.push(m); hist.inv.push(inv);
+  if(hist.mid.length>120){hist.mid.shift();hist.inv.shift();} drawChart(); }
+function drawChart(){
+  const c=$("chart"), ctx=c.getContext("2d"), W=c.width, H=c.height;
+  ctx.clearRect(0,0,W,H); const n=hist.mid.length; if(n<2)return;
+  const line=(arr,color)=>{ const lo=Math.min(...arr),hi=Math.max(...arr),r=(hi-lo)||1;
+    ctx.beginPath(); arr.forEach((v,i)=>{ const x=i/(n-1)*W, y=H-8-((v-lo)/r)*(H-16);
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.strokeStyle=color; ctx.lineWidth=1.6; ctx.stroke(); };
+  line(hist.mid, getCSS('--accent')); line(hist.inv, getCSS('--quote'));
+}
+const getCSS=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+function setStatus(txt, ok){ $("statusTxt").textContent=txt;
+  $("dot").className="dot "+(mode==="live"?(ok?"live":""):"sim"); }
+function setMode(m){
+  mode=m; const sim=m==="sim";
+  $("mSim").setAttribute("aria-pressed",sim); $("mLive").setAttribute("aria-pressed",!sim);
+  $("liveControls").style.display=sim?"none":"block";
+  $("banner").style.display=sim?"block":"none";
+  if(sim){ if(live){live.disconnect&&live.disconnect();live=null;}
+    setStatus("simulated feed",true); if(!simTimer) simTimer=setInterval(simTick,900); }
+  else { if(simTimer){clearInterval(simTimer);simTimer=null;}
+    setStatus("idle — connect to a token pair", false); }
+}
+$("mSim").onclick=()=>setMode("sim");
+$("mLive").onclick=()=>setMode("live");
+$("connect").onclick=connectLive;
+$("gamma").oninput=e=>{GAMMA=+e.target.value;$("gVal").textContent=GAMMA.toFixed(2);render();};
+$("kappa").oninput=e=>{KAPPA=+e.target.value;$("kVal").textContent=KAPPA.toFixed(1);render();};
+$("horizon").oninput=e=>{HORIZON=+e.target.value;$("tVal").textContent=HORIZON.toFixed(2);render();};
+$("buy").onclick=()=>{const m=mid();if(m){onFill(8000,m);render();}};
+$("sell").onclick=()=>{const m=mid();if(m){onFill(-8000,m);render();}};
+$("flat").onclick=()=>{const m=mid();if(m){onFill(-risk.xrp,m);render();}};
+
+setMode("sim");
+</script>
+</body>
+</html>

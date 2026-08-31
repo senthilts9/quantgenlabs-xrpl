@@ -1,0 +1,54 @@
+flowchart TB
+  subgraph SRC["1 · Data sources"]
+    MD["Market data feeds<br/>prices, curves, vol, ratings"]
+    TR["Trades & positions<br/>books, portfolios"]
+    RF["Reference data<br/>instruments, counterparties"]
+  end
+
+  subgraph RES["2 · Ingestion & research  ·  Python"]
+    DBX["Databricks / Spark<br/>ETL & data pipelines"]
+    JUP["Jupyter notebooks<br/>research, calibration, backtests"]
+  end
+
+  subgraph CORE["3 · Compute core"]
+    CPP["C++ low-latency engine<br/>valuation + risk kernels"]
+    BIND["pybind11 bindings<br/>C++ callable from Python"]
+    PRICEM["Pricing models<br/>rates / FX / equity / credit / XVA"]
+    RISKM["Risk models<br/>market / credit / liquidity / op"]
+  end
+
+  subgraph STORE["4 · Storage"]
+    LOCAL[("DataBank<br/>local application DB<br/>operational store")]
+    CENTRAL[("Capsion DB<br/>central referential DB<br/>golden source")]
+  end
+
+  subgraph OUT["5 · Monitoring & reporting"]
+    DASH["Risk dashboards<br/>credit · operational · liquidity"]
+    BATCH["Scheduled batch jobs<br/>EOD PnL, overnight VaR, stress"]
+    REG["Regulatory & MI reporting"]
+  end
+
+  MD --> DBX
+  TR --> DBX
+  RF --> DBX
+  DBX --> JUP
+  JUP -. "prototype in Python,<br/>productionise in C++" .-> CPP
+  DBX --> CPP
+  CPP --> BIND
+  BIND --> JUP
+  CPP --> PRICEM
+  CPP --> RISKM
+  BATCH ==> CPP
+  PRICEM --> LOCAL
+  RISKM --> LOCAL
+  LOCAL == "replicated copy" ==> CENTRAL
+  LOCAL --> DASH
+  CENTRAL --> DASH
+  CENTRAL --> REG
+
+  classDef src fill:#0E1626,stroke:#5B8DEF,color:#E6EDF5;
+  classDef core fill:#111A2B,stroke:#E8B84B,color:#E6EDF5;
+  classDef store fill:#101d18,stroke:#3DD68C,color:#E6EDF5;
+  class MD,TR,RF,DBX,JUP src;
+  class CPP,BIND,PRICEM,RISKM core;
+  class LOCAL,CENTRAL store;

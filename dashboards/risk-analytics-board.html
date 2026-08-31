@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>XRPL Desk — live risk analytics board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0B1220;--panel:#111A2B;--panel2:#0E1626;--line:#1E2B41;
+    --text:#E6EDF5;--muted:#8A97AB;--dim:#5A6B85;
+    --pos:#3DD68C;--neg:#F0616D;--accent:#5B8DEF;--gold:#E8B84B;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1200px 600px at 85% -10%,rgba(91,141,239,.10),transparent 60%),var(--ink);
+    color:var(--text);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;
+    -webkit-font-smoothing:antialiased}
+  h1,h2,h3,.disp{font-family:"Space Grotesk",system-ui,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:18px 18px 40px}
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-bottom:14px;
+    border-bottom:1px solid var(--line);margin-bottom:14px}
+  h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.02em}
+  h1 small{color:var(--muted);font-weight:400;font-size:13px}
+  .spot{margin-left:auto;text-align:right}
+  .spot .lab{color:var(--muted);font-size:11px}
+  .spot .v{font-family:"Space Grotesk";font-size:30px;font-weight:700;line-height:1;
+    font-variant-numeric:tabular-nums}
+  .spot .chg{font-size:12px}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:end;margin-bottom:12px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .ctl{display:flex;flex-direction:column;gap:3px}
+  .ctl label{color:var(--muted);font-size:11px}
+  .ctl input,.ctl select{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    font-family:inherit;font-size:12px;border-radius:7px;padding:5px 7px;width:88px}
+  .ctl.wide input{width:170px}
+  .btn{all:unset;cursor:pointer;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:7px 13px;font-size:12px;font-weight:500}
+  .btn:hover{border-color:var(--accent)}
+  .btn.on{background:var(--accent);color:#06101f;border-color:var(--accent)}
+  .btn.gold:hover{border-color:var(--gold)}
+  .note{color:var(--dim);font-size:11px}
+  .banner{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:8px 12px;color:var(--muted);font-size:11.5px;margin-bottom:14px}
+  .banner b{color:var(--text)}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  @media(max-width:920px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 14px}
+  .card h3{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+  .card h3 .c{color:var(--gold);font-weight:600}
+  .sub{color:var(--dim);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    margin:10px 0 5px;border-bottom:1px dashed var(--line);padding-bottom:3px}
+  .sub:first-of-type{margin-top:2px}
+  .r{display:flex;justify-content:space-between;align-items:baseline;padding:2.5px 0;
+    font-variant-numeric:tabular-nums}
+  .r .k{color:var(--muted)} .r .k small{color:var(--dim)}
+  .r .v{font-weight:500}
+  .pos{color:var(--pos)} .neg{color:var(--neg)} .gold{color:var(--gold)}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Live risk analytics board <small>— option overlay on XRP spot</small></h1>
+    <div class="spot">
+      <div class="lab">XRP spot (RLUSD)</div>
+      <div class="v" id="spotV">2.1000</div>
+      <div class="chg" id="spotChg">—</div>
+    </div>
+  </header>
+
+  <div class="banner">
+    <b>Why an option overlay?</b> Greeks are sensitivities of an <b>option's</b> price — spot
+    alone has none. So the board prices an option on XRP; a spot move then cascades through
+    ~20 Greeks (bump-and-revalue off Black-Scholes), ~20 risk measures, and ~20 quant methods.
+  </div>
+
+  <div class="controls">
+    <div class="ctl"><label>Strike K</label><input id="K" type="number" value="2.10" step="0.05"/></div>
+    <div class="ctl"><label>Vol σ</label><input id="sig" type="number" value="0.65" step="0.05"/></div>
+    <div class="ctl"><label>Rate r</label><input id="r" type="number" value="0.04" step="0.01"/></div>
+    <div class="ctl"><label>Carry q</label><input id="q" type="number" value="0.00" step="0.01"/></div>
+    <div class="ctl"><label>Expiry T (yr)</label><input id="T" type="number" value="0.25" step="0.05"/></div>
+    <div class="ctl"><label>Type</label><select id="typ"><option value="call">call</option><option value="put">put</option></select></div>
+    <div class="ctl"><label>Position</label><input id="pos" type="number" value="100" step="10"/></div>
+    <div class="ctl wide"><label>Spot (manual)</label><input id="spotSlider" type="range" min="1.5" max="2.8" step="0.001" value="2.10"/></div>
+    <button class="btn on" id="auto">Auto ticks</button>
+    <button class="btn gold" id="shock">Shock −5%</button>
+  </div>
+
+  <div class="grid">
+    <section class="card"><h3>Greeks <span class="c" id="gN"></span></h3><div id="greeks"></div></section>
+    <section class="card"><h3>Risk measures <span class="c" id="rN"></span></h3><div id="risk"></div></section>
+    <section class="card"><h3>Quant methods <span class="c" id="qN"></span></h3><div id="quant"></div></section>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ===== normal dist =====
+const erf=x=>{const t=1/(1+0.3275911*Math.abs(x));
+  const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+  return x>=0?y:-y;};
+const N=x=>0.5*(1+erf(x/Math.SQRT2));
+const npdf=x=>Math.exp(-x*x/2)/Math.sqrt(2*Math.PI);
+
+// ===== Black-Scholes (verified against analytic in Python) =====
+function bs(S,K,r,q,sig,T,typ){
+  if(T<=0||sig<=0) return typ==='call'?Math.max(S-K,0):Math.max(K-S,0);
+  const d1=(Math.log(S/K)+(r-q+sig*sig/2)*T)/(sig*Math.sqrt(T)), d2=d1-sig*Math.sqrt(T);
+  return typ==='call'
+    ? S*Math.exp(-q*T)*N(d1)-K*Math.exp(-r*T)*N(d2)
+    : K*Math.exp(-r*T)*N(-d2)-S*Math.exp(-q*T)*N(-d1);
+}
+// generic finite differences
+const fd1=(f,x,h)=>(f(x+h)-f(x-h))/(2*h);
+const fd2=(f,x,h)=>(f(x+h)-2*f(x)+f(x-h))/(h*h);
+
+function greeks(S,K,r,q,sig,T,typ){
+  const P=(s,k,rr,qq,v,t)=>bs(s,k,rr,qq,v,t,typ);
+  const hS=S*1e-4,hV=1e-4,hT=1e-5,hR=1e-4,hK=K*1e-4;
+  const price=P(S,K,r,q,sig,T);
+  const delta=fd1(s=>P(s,K,r,q,sig,T),S,hS);
+  const gamma=fd2(s=>P(s,K,r,q,sig,T),S,hS);
+  const vega =fd1(v=>P(S,K,r,q,v,T),sig,hV);
+  const theta=-fd1(t=>P(S,K,r,q,sig,t),T,hT);
+  const rho  =fd1(rr=>P(S,K,rr,q,sig,T),r,hR);
+  const vanna=fd1(v=>fd1(s=>P(s,K,r,q,v,T),S,hS),sig,hV);
+  const vomma=fd2(v=>P(S,K,r,q,v,T),sig,hV);
+  const charm=-fd1(t=>fd1(s=>P(s,K,r,q,sig,t),S,hS),T,hT);
+  const veta =fd1(t=>fd1(v=>P(S,K,r,q,v,t),sig,hV),T,hT);
+  const vera =fd1(v=>fd1(rr=>P(S,K,rr,q,v,T),r,hR),sig,hV);
+  const speed=fd1(s=>fd2(ss=>P(ss,K,r,q,sig,T),s,hS),S,hS);
+  const zomma=fd1(v=>fd2(s=>P(s,K,r,q,v,T),S,hS),sig,hV);
+  const color=-fd1(t=>fd2(s=>P(s,K,r,q,sig,t),S,hS),T,hT);
+  const ultima=fd1(v=>fd2(vv=>P(S,K,r,q,vv,T),v,hV),sig,hV);
+  const dDelta=fd1(k=>P(S,k,r,q,sig,T),K,hK);
+  const dGamma=fd2(k=>P(S,k,r,q,sig,T),K,hK);
+  const epsilon=fd1(qq=>P(S,K,r,qq,sig,T),q,hR);
+  const lam=price>0?delta*S/price:NaN;
+  return {price,delta,gamma,vega:vega/100,theta:theta/365,rho:rho/100,
+    epsilon:epsilon/100,lambda:lam,vanna:vanna/100,charm:charm/365,vomma:vomma/1e4,
+    veta:veta/1e4,vera:vera/1e4,speed,zomma:zomma/100,color:color/365,ultima:ultima/1e6,
+    dualDelta:dDelta,dualGamma:dGamma};
+}
+
+// ===== returns buffer from the spot path =====
+const R=[]; let prevS=null, startS=null, peak=0, maxDD=0;
+function pushReturn(S){ if(startS==null){startS=S;peak=S;}
+  if(prevS!=null){R.push(Math.log(S/prevS)); if(R.length>250)R.shift();}
+  prevS=S; peak=Math.max(peak,S); maxDD=Math.max(maxDD,(peak-S)/peak); }
+
+const mean=a=>a.reduce((x,y)=>x+y,0)/(a.length||1);
+const std=a=>{if(a.length<2)return 0;const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1));};
+const quantile=(a,p)=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))];};
+function skew(a){const m=mean(a),s=std(a);if(s===0||a.length<3)return 0;return a.reduce((z,x)=>z+((x-m)/s)**3,0)/a.length;}
+function kurt(a){const m=mean(a),s=std(a);if(s===0||a.length<4)return 0;return a.reduce((z,x)=>z+((x-m)/s)**4,0)/a.length-3;}
+
+function riskMeasures(S,notional){
+  const stp=std(R), ann=stp*Math.sqrt(7.9e6);          // ~ledgers/yr
+  // EWMA
+  let ev=0; for(const x of R) ev=0.94*ev+0.06*x*x; const ewma=Math.sqrt(ev*7.9e6);
+  const m=mean(R), sk=skew(R), ku=kurt(R);
+  const z99=2.326, z95=1.645;
+  const varP99=Math.abs(notional)*z99*stp, varP95=Math.abs(notional)*z95*stp;
+  const varH99=Math.abs(notional)*Math.abs(quantile(R,0.01));
+  // Monte-Carlo VaR (normal draws w/ sample moments)
+  let mc=[]; for(let i=0;i<2000;i++){const u1=Math.random(),u2=Math.random();
+    mc.push(m+stp*Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2));}
+  const varMC=Math.abs(notional)*Math.abs(quantile(mc,0.01));
+  // Cornish-Fisher (skew/kurt adjusted)
+  const zcf=z99+(z99*z99-1)*sk/6+(z99**3-3*z99)*ku/24-(2*z99**3-5*z99)*sk*sk/36;
+  const varCF=Math.abs(notional)*zcf*stp;
+  const tail=R.filter(x=>x<=quantile(R,0.01)); const cvar=Math.abs(notional)*Math.abs(tail.length?mean(tail):0);
+  const downside=R.filter(x=>x<0); const dd=Math.sqrt(mean(downside.map(x=>x*x))||0);
+  const sharpe=stp?(m/stp)*Math.sqrt(7.9e6):0;
+  const sortino=dd?(m/dd)*Math.sqrt(7.9e6):0;
+  const calmar=maxDD?(m*7.9e6)/maxDD:0;
+  // Ulcer, Omega, tail ratio
+  const ulcer=Math.sqrt(mean(R.map((_,i)=>{const s=R.slice(0,i+1);return 0;}))||0); // simplified below
+  const gains=R.filter(x=>x>0).reduce((a,b)=>a+b,0), losses=-R.filter(x=>x<0).reduce((a,b)=>a+b,0);
+  const omega=losses?gains/losses:0;
+  const tr=Math.abs(quantile(R,0.05))?Math.abs(quantile(R,0.95))/Math.abs(quantile(R,0.05)):0;
+  return {stp,ann,ewma,varP95,varP99,varH99,varMC,varCF,cvar,maxDD:maxDD*Math.abs(notional||1),
+    sharpe,sortino,calmar,dd,semivar:dd*dd,sk,ku,omega,tr};
+}
+
+// ===== quant methods =====
+function binomial(S,K,r,q,sig,T,typ,steps){
+  const dt=T/steps,u=Math.exp(sig*Math.sqrt(dt)),d=1/u,p=(Math.exp((r-q)*dt)-d)/(u-d),disc=Math.exp(-r*dt);
+  let v=[];for(let i=0;i<=steps;i++){const ST=S*u**(steps-i)*d**i;v.push(typ==='call'?Math.max(ST-K,0):Math.max(K-ST,0));}
+  for(let s=steps;s>0;s--)for(let i=0;i<s;i++)v[i]=disc*(p*v[i]+(1-p)*v[i+1]);
+  return v[0];
+}
+function mc(S,K,r,q,sig,T,typ,paths){
+  let s=0;for(let i=0;i<paths;i++){const u1=Math.random(),u2=Math.random();
+    const z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+    const ST=S*Math.exp((r-q-sig*sig/2)*T+sig*Math.sqrt(T)*z);
+    s+=typ==='call'?Math.max(ST-K,0):Math.max(K-ST,0);}
+  return Math.exp(-r*T)*s/paths;
+}
+function impliedVol(price,S,K,r,q,T,typ){
+  let lo=0.001,hi=5;for(let i=0;i<60;i++){const mid=(lo+hi)/2;
+    (bs(S,K,r,q,mid,T,typ)>price)?hi=mid:lo=mid;}return (lo+hi)/2;
+}
+function bachelier(S,K,r,q,sigN,T,typ){const F=S*Math.exp((r-q)*T);
+  const d=(F-K)/(sigN*Math.sqrt(T));const c=Math.exp(-r*T)*((F-K)*N(d)+sigN*Math.sqrt(T)*npdf(d));
+  return typ==='call'?c:c-Math.exp(-r*T)*(F-K);}
+function black76(S,K,r,q,sig,T,typ){const F=S*Math.exp((r-q)*T);
+  const d1=(Math.log(F/K)+sig*sig/2*T)/(sig*Math.sqrt(T)),d2=d1-sig*Math.sqrt(T);
+  return typ==='call'?Math.exp(-r*T)*(F*N(d1)-K*N(d2)):Math.exp(-r*T)*(K*N(-d2)-F*N(-d1));}
+function merton(S,K,r,q,sig,T,typ,lam,mj,vj){let sum=0,f=1;
+  for(let k=0;k<12;k++){if(k>0)f*=k;const lt=lam*T,w=Math.exp(-lt)*lt**k/f;
+    const sigk=Math.sqrt(sig*sig+k*vj*vj/T),rk=r-lam*(Math.exp(mj+vj*vj/2)-1)+k*Math.log(Math.exp(mj+vj*vj/2))/T;
+    sum+=w*bs(S,K,rk,q,sigk,T,typ);}return sum;}
+function hurst(a){if(a.length<20)return 0.5;const m=mean(a);let y=0,mn=1e9,mx=-1e9,ss=0;
+  for(const x of a){y+=x-m;mn=Math.min(mn,y);mx=Math.max(mx,y);}const Rr=mx-mn,S2=std(a);
+  return S2?Math.log(Rr/S2)/Math.log(a.length):0.5;}
+function autocorr(a){if(a.length<3)return 0;const m=mean(a);let num=0,den=0;
+  for(let i=1;i<a.length;i++)num+=(a[i]-m)*(a[i-1]-m);for(const x of a)den+=(x-m)**2;return den?num/den:0;}
+
+// synthetic book around spot (for microstructure methods)
+function book(S){const b=[],a=[];for(let i=0;i<6;i++){const off=S*(0.0004+i*0.0003);
+  b.push([S-off,500+Math.random()*4000]);a.push([S+off,500+Math.random()*4000]);}return {b,a};}
+
+// ===== render =====
+const $=id=>document.getElementById(id);
+const f=(x,d=4)=>(x==null||!isFinite(x))?"—":x.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const sgn=x=>x>0?"pos":(x<0?"neg":"");
+function row(k,v,cls="",sub=""){return `<div class="r"><span class="k">${k}${sub?` <small>${sub}</small>`:""}</span><span class="v ${cls}">${v}</span></div>`;}
+
+let S=2.10, autoOn=true, timer=null;
+function recompute(){
+  const K=+$("K").value,sig=+$("sig").value,r=+$("r").value,q=+$("q").value,T=+$("T").value,
+        typ=$("typ").value,pos=+$("pos").value;
+  pushReturn(S);
+  const g=greeks(S,K,r,q,sig,T,typ);
+  const notional=pos*S*g.delta;                 // delta-adjusted exposure
+  const rm=riskMeasures(S,notional);
+
+  // spot header
+  $("spotV").textContent=f(S);
+  if(startS){const c=(S/startS-1)*100;$("spotChg").innerHTML=`<span class="${sgn(c)}">${c>=0?'+':''}${c.toFixed(2)}% since open</span>`;}
+
+  // GREEKS (scale per-unit by position)
+  const P=pos;
+  const G=[["Δ delta",g.delta*P],["Γ gamma",g.gamma*P],["ν vega","1%",g.vega*P],
+    ["Θ theta","/day",g.theta*P],["ρ rho","1%",g.rho*P],["ε epsilon",g.epsilon*P],
+    ["Λ lambda (elast.)",g.lambda],
+    ["vanna",g.vanna*P],["charm","/day",g.charm*P],["vomma",g.vomma*P],["veta",g.veta*P],
+    ["vera",g.vera*P],
+    ["speed",g.speed*P],["zomma",g.zomma*P],["color","/day",g.color*P],["ultima",g.ultima*P],
+    ["dual delta",g.dualDelta*P],["dual gamma",g.dualGamma*P]];
+  let gh=`<div class="sub">first order</div>`;
+  gh+=G.slice(0,7).map(x=>row(x[0],f(x[x.length-1],4),sgn(x[x.length-1]),x.length===3?x[1]:"")).join("");
+  gh+=`<div class="sub">second order</div>`+G.slice(7,12).map(x=>row(x[0],f(x[x.length-1],4),sgn(x[x.length-1]),x.length===3?x[1]:"")).join("");
+  gh+=`<div class="sub">third order & duals</div>`+G.slice(12).map(x=>row(x[0],f(x[x.length-1],4),sgn(x[x.length-1]),x.length===3?x[1]:"")).join("");
+  gh+=`<div class="r"><span class="k">option value</span><span class="v gold">${f(g.price*P,2)}</span></div>`;
+  $("greeks").innerHTML=gh; $("gN").textContent=`${G.length+1} live`;
+
+  // RISK
+  let rh=`<div class="sub">volatility</div>`+
+    row("Realized σ (per step)",f(rm.stp*100,3)+"%")+row("Annualized σ",f(rm.ann*100,1)+"%")+
+    row("EWMA σ (ann.)",f(rm.ewma*100,1)+"%");
+  rh+=`<div class="sub">value at risk · delta-adj notional</div>`+
+    row("VaR 95% param",f(rm.varP95,2),"neg")+row("VaR 99% param",f(rm.varP99,2),"neg")+
+    row("VaR 99% historical",f(rm.varH99,2),"neg")+row("VaR 99% Monte-Carlo",f(rm.varMC,2),"neg")+
+    row("VaR 99% Cornish-Fisher",f(rm.varCF,2),"neg")+row("CVaR / ES 99%",f(rm.cvar,2),"neg");
+  rh+=`<div class="sub">ratios & shape</div>`+
+    row("Max drawdown",f(rm.maxDD,2),"neg")+row("Sharpe (ann.)",f(rm.sharpe,2),sgn(rm.sharpe))+
+    row("Sortino",f(rm.sortino,2),sgn(rm.sortino))+row("Calmar",f(rm.calmar,2),sgn(rm.calmar))+
+    row("Downside deviation",f(rm.dd*100,3)+"%")+row("Semivariance",f(rm.semivar*1e4,3)+"e-4")+
+    row("Skewness",f(rm.sk,3),sgn(rm.sk))+row("Excess kurtosis",f(rm.ku,3))+
+    row("Omega ratio",f(rm.omega,2))+row("Tail ratio 95/5",f(rm.tr,2));
+  $("risk").innerHTML=rh; $("rN").textContent="20 live";
+
+  // QUANT METHODS
+  const {b,a}=book(S), bb=b[0],ba=a[0], mid=(bb[0]+ba[0])/2;
+  const micro=(ba[0]*bb[1]+bb[0]*ba[1])/(bb[1]+ba[1]);
+  const vb=b.reduce((s,x)=>s+x[1],0), va=a.reduce((s,x)=>s+x[1],0), imb=(vb-va)/(vb+va);
+  const spread=(ba[0]-bb[0])/mid*1e4;
+  const depth=a.filter(x=>x[0]<=mid*1.001).reduce((s,x)=>s+x[1],0);
+  const price=bs(S,K,r,q,sig,T,typ);
+  const iv=impliedVol(price,S,K,r,q,T,typ);
+  const rho0=S/(startS||S), il=(2*Math.sqrt(rho0)/(1+rho0)-1)*100;
+  let qh=`<div class="sub">option pricing</div>`+
+    row("Black-Scholes call",f(bs(S,K,r,q,sig,T,'call'),4))+row("Black-Scholes put",f(bs(S,K,r,q,sig,T,'put'),4))+
+    row("Binomial CRR",f(binomial(S,K,r,q,sig,T,typ,60),4),"","60 steps")+
+    row("Monte-Carlo",f(mc(S,K,r,q,sig,T,typ,1500),4),"","1.5k paths")+
+    row("Implied vol (solver)",f(iv*100,2)+"%")+row("Bachelier (normal)",f(bachelier(S,K,r,q,sig*S,T,typ),4))+
+    row("Black-76 (futures)",f(black76(S,K,r,q,sig,T,typ),4))+
+    row("Merton jump-diff",f(merton(S,K,r,q,sig,T,typ,0.5,-0.02,0.15),4));
+  qh+=`<div class="sub">microstructure</div>`+
+    row("Mid",f(mid,4))+row("Microprice",f(micro,4))+row("Imbalance",f(imb,3),sgn(imb))+
+    row("Spread",f(spread,2)+" bps")+row("Depth @10bps",Math.round(depth)+" XRP")+
+    row("Kyle's λ (impact)",f(spread/(2*depth)*1e4,4))+row("Amihud illiq.",f(Math.abs(rm.stp)/(vb+va)*1e6,4));
+  qh+=`<div class="sub">time-series & AMM</div>`+
+    row("Realized variance",f(R.reduce((s,x)=>s+x*x,0)*1e4,3)+"e-4")+
+    row("Autocorr lag-1",f(autocorr(R),3))+row("Hurst exponent",f(hurst(R),3))+
+    row("Breakeven move σ√T",f(sig*Math.sqrt(T)*100,2)+"%")+
+    row("AMM price (x·y=k)",f(mid,4))+row("Impermanent loss",f(il,3)+"%",il<0?"neg":"");
+  $("quant").innerHTML=qh; $("qN").textContent="20 live";
+}
+
+// ===== drivers =====
+function tick(){ S*=Math.exp((Math.random()-0.5)*0.012); S=Math.round(S*1e4)/1e4;
+  $("spotSlider").value=Math.min(2.8,Math.max(1.5,S)); recompute(); }
+function setAuto(on){ autoOn=on; $("auto").classList.toggle("on",on);
+  $("auto").textContent=on?"Auto ticks":"Paused";
+  if(on){ if(!timer)timer=setInterval(tick,750);} else {clearInterval(timer);timer=null;} }
+$("auto").onclick=()=>setAuto(!autoOn);
+$("shock").onclick=()=>{S=Math.round(S*0.95*1e4)/1e4;$("spotSlider").value=S;recompute();};
+$("spotSlider").oninput=e=>{ if(autoOn)setAuto(false); S=+e.target.value; recompute(); };
+["K","sig","r","q","T","typ","pos"].forEach(id=>$(id).oninput=recompute);
+
+// seed a little history so risk stats are populated immediately
+(function seed(){let s=2.10;for(let i=0;i<40;i++){s*=Math.exp((Math.random()-0.5)*0.012);pushReturn(s);}})();
+recompute(); setAuto(true);
+</script>
+</body>
+</html>

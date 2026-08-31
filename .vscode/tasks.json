@@ -1,0 +1,51 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "sim: build (direct clang++, no cmake)",
+      "type": "shell",
+      "command": "clang++ -std=c++20 -O2 -Wall -Icpp/include cpp/src/sim_main.cpp -o build/sim -pthread",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "sim: run",
+      "type": "shell",
+      "command": "./build/sim",
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "sim: build (direct clang++, no cmake)",
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "cmake: configure",
+      "type": "shell",
+      "command": "cmake -S cpp -B cpp/build -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3 2>/dev/null)",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: build all",
+      "type": "shell",
+      "command": "cmake --build cpp/build -j",
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "cmake: configure",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "python: run finmath self-tests",
+      "type": "shell",
+      "command": "python3 finmath.py",
+      "options": { "cwd": "${workspaceFolder}/python" },
+      "problemMatcher": []
+    },
+    {
+      "label": "python: run demo",
+      "type": "shell",
+      "command": "python3 demo.py",
+      "options": { "cwd": "${workspaceFolder}/python" },
+      "problemMatcher": []
+    }
+  ]
+}

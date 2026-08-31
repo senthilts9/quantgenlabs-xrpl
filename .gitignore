@@ -1,0 +1,8 @@
+build/
+cpp/build/
+python/.venv/
+__pycache__/
+*.o
+*.so
+*.dSYM/
+.DS_Store
