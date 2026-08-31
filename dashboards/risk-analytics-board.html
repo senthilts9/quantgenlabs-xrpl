@@ -246,15 +246,20 @@ function recompute(){
   $("spotV").textContent=f(S);
   if(startS){const c=(S/startS-1)*100;$("spotChg").innerHTML=`<span class="${sgn(c)}">${c>=0?'+':''}${c.toFixed(2)}% since open</span>`;}
 
-  // GREEKS (scale per-unit by position)
+  // GREEKS (scale per-unit by position) -- every row except lambda (a
+  // dimensionless elasticity, not a dollar sensitivity) is the PORTFOLIO
+  // Greek: per-option value times position size. Label suffix makes that
+  // explicit so e.g. delta=55.99 isn't misread against the textbook [-1,1]
+  // per-option range.
   const P=pos;
-  const G=[["Δ delta",g.delta*P],["Γ gamma",g.gamma*P],["ν vega","1%",g.vega*P],
-    ["Θ theta","/day",g.theta*P],["ρ rho","1%",g.rho*P],["ε epsilon",g.epsilon*P],
-    ["Λ lambda (elast.)",g.lambda],
-    ["vanna",g.vanna*P],["charm","/day",g.charm*P],["vomma",g.vomma*P],["veta",g.veta*P],
-    ["vera",g.vera*P],
-    ["speed",g.speed*P],["zomma",g.zomma*P],["color","/day",g.color*P],["ultima",g.ultima*P],
-    ["dual delta",g.dualDelta*P],["dual gamma",g.dualGamma*P]];
+  const qty = `(${P} qty)`;
+  const G=[[`Δ delta ${qty}`,g.delta*P],[`Γ gamma ${qty}`,g.gamma*P],[`ν vega ${qty}`,"1%",g.vega*P],
+    [`Θ theta ${qty}`,"/day",g.theta*P],[`ρ rho ${qty}`,"1%",g.rho*P],[`ε epsilon ${qty}`,g.epsilon*P],
+    ["Λ lambda (elast., per-option)",g.lambda],
+    [`vanna ${qty}`,g.vanna*P],[`charm ${qty}`,"/day",g.charm*P],[`vomma ${qty}`,g.vomma*P],[`veta ${qty}`,g.veta*P],
+    [`vera ${qty}`,g.vera*P],
+    [`speed ${qty}`,g.speed*P],[`zomma ${qty}`,g.zomma*P],[`color ${qty}`,"/day",g.color*P],[`ultima ${qty}`,g.ultima*P],
+    [`dual delta ${qty}`,g.dualDelta*P],[`dual gamma ${qty}`,g.dualGamma*P]];
   let gh=`<div class="sub">first order</div>`;
   gh+=G.slice(0,7).map(x=>row(x[0],f(x[x.length-1],4),sgn(x[x.length-1]),x.length===3?x[1]:"")).join("");
   gh+=`<div class="sub">second order</div>`+G.slice(7,12).map(x=>row(x[0],f(x[x.length-1],4),sgn(x[x.length-1]),x.length===3?x[1]:"")).join("");
@@ -307,7 +312,7 @@ function recompute(){
 }
 
 // ===== drivers =====
-function tick(){ S*=Math.exp((Math.random()-0.5)*0.012); S=Math.round(S*1e4)/1e4;
+function tick(){ S*=Math.exp((Math.random()-0.5)*0.0016); S=Math.round(S*1e4)/1e4;
   $("spotSlider").value=Math.min(2.8,Math.max(1.5,S)); recompute(); }
 function setAuto(on){ autoOn=on; $("auto").classList.toggle("on",on);
   $("auto").textContent=on?"Auto ticks":"Paused";
@@ -318,7 +323,7 @@ $("spotSlider").oninput=e=>{ if(autoOn)setAuto(false); S=+e.target.value; recomp
 ["K","sig","r","q","T","typ","pos"].forEach(id=>$(id).oninput=recompute);
 
 // seed a little history so risk stats are populated immediately
-(function seed(){let s=2.10;for(let i=0;i<40;i++){s*=Math.exp((Math.random()-0.5)*0.012);pushReturn(s);}})();
+(function seed(){let s=2.10;for(let i=0;i<40;i++){s*=Math.exp((Math.random()-0.5)*0.0016);pushReturn(s);}})();
 recompute(); setAuto(true);
 </script>
 </body>
