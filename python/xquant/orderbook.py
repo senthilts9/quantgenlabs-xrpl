@@ -126,3 +126,38 @@ class OrderBook:
                 sgn = 1.0 if take_side is Side.ASK else -1.0
                 r.slippage_bps = (r.avg_price - m) / m * 1e4 * sgn
         return r
+
+    def take(self, take_side: Side, qty: float) -> FillResult:
+        """Same walk as simulate_fill(), but actually CONSUMES the liquidity
+        taken -- upserts each touched level down to its remaining size (or
+        removes it if fully consumed). Needed for anything that fills more
+        than once against the same book (e.g. a multi-child TWAP/VWAP
+        execution -- see xquant/execution.py): calling simulate_fill()
+        repeatedly against an unmutated book lets each call see the full
+        original depth again, double-counting the same resting liquidity
+        across child orders. simulate_fill() stays read-only on purpose (for
+        "what would happen right now" queries that shouldn't have side
+        effects); this is the one that actually happened."""
+        m = self.mid()
+        book = self._asks if take_side is Side.ASK else self._bids
+        remaining, notional = qty, 0.0
+        touched: list[tuple[float, float]] = []  # (price, remaining_qty_at_level)
+        for px, avail in book.items():
+            take = min(remaining, avail)
+            notional += take * px
+            remaining -= take
+            touched.append((px, avail - take))
+            if remaining <= 1e-12:
+                break
+        for px, remaining_qty in touched:
+            self.upsert(take_side, px, remaining_qty)
+
+        r = FillResult()
+        r.filled = qty - remaining
+        r.complete = remaining <= 1e-12
+        if r.filled > 0:
+            r.avg_price = notional / r.filled
+            if m:
+                sgn = 1.0 if take_side is Side.ASK else -1.0
+                r.slippage_bps = (r.avg_price - m) / m * 1e4 * sgn
+        return r
