@@ -135,7 +135,10 @@ grows unbounded).
 None of this is claimed to be HFT-grade (sub-microsecond, kernel-bypass networking,
 `std::map` genuinely would be replaced first) — it's claimed to be **the right
 instincts, applied honestly**, and the numbers in §5 are real enough to defend that
-claim without inflating it.
+claim without inflating it. §5.4 goes further than a caveat here: it measures
+exactly how much `std::map`'s allocator costs on the full-tick path (~85% of it) and
+walks through why the obvious quick fix doesn't actually work for this workload,
+rather than asserting the tradeoff and moving on.
 
 ## 4 · Bugs found and fixed along the way
 
@@ -237,7 +240,70 @@ throughout (spread never goes negative), and VaR visibly tracks `|inventory|`
 (compare `inv=360` → `VaR99=1.40` against `inv=-11663` → `VaR99=35.26`) — internal
 consistency again, not just plausible-looking numbers.
 
-### 5.3 React math-layer self-tests
+### 5.4 Sustained throughput — and a claim that didn't survive scrutiny
+
+Per-operation latency (§5.1) doesn't prove a sustained-rate claim on its own — cache
+and branch-predictor state, and cross-thread handoff cost, all change under real
+sustained load. `cpp/bench/bench_throughput.cpp` measures wall-clock throughput
+directly instead of inferring it from summed medians:
+
+```
+Full tick (clear+12 upserts+mid+microprice+on_mark):
+  602112 ticks in 2.000s = 301056 ticks/sec (3321.6 ns/tick)
+
+SpscRingBuffer, real cross-thread producer/consumer:
+  produced=76806082  consumed=76806082  dropped(queue-full)=1384780  in 2.0s
+  = 38403041 messages/sec consumed
+```
+
+The messaging layer clears a million messages/sec by close to 40×. The full simulated
+tick — `clear()` the book, re-quote 6 levels/side, read mid and microprice, mark the
+risk engine, matching `sim_main.cpp`'s actual per-ledger workload — does not reach a
+million ticks/sec; it measures 301,056/sec.
+
+**That gap was worth attributing precisely rather than waving at.**
+`cpp/bench/bench_decompose.cpp` isolates each component:
+
+```
+12x upsert() alone (existing levels)      : 3457024/sec  (289.3 ns)
+clear() + 12x upsert() together           : 376832/sec  (2653.7 ns)
+mid()+microprice() alone                  : 231927808/sec  (4.3 ns)
+risk.on_mark() alone                      : 23031808/sec  (43.4 ns)
+```
+
+`clear()` followed by rebuilding the book accounts for essentially all of it —
+`mid()`/`microprice()`/`on_mark()` combined are under 50ns, noise next to the ~2.4μs
+`clear()`+rebuild costs. That's `std::map`'s node allocator: every tick frees 12 tree
+nodes and reallocates 12 more. It is exactly the cost §3's own "first thing to swap"
+comment already named — this benchmark just turned that comment into a number.
+
+**A cheaper fix was considered and rejected, on the record, rather than shipped
+anyway.** The obvious-looking alternative — stop calling `clear()`, just `upsert()`
+the new prices in place — doesn't hold up for this workload once traced through: XRPL
+mid moves by an amount comparable to the spacing between price levels every tick, so
+the *specific* price keys genuinely change tick to tick. Skipping `clear()` while
+still inserting new keys leaves the old ones in the map forever — unbounded growth,
+not a fix. Correctly removing the 12 stale keys before inserting the 12 new ones costs
+essentially the same as `clear()` + `upsert()` — no real gain, just a
+better-disguised version of the same cost. A synthetic single-key-reuse benchmark
+would have "shown" a 3.46M/sec win; it would have been measuring a workload
+`sim_main.cpp` doesn't actually have. Better to report that clearly than ship a
+number that only holds up until someone tries to reproduce it against the real feed.
+
+**The actually-correct fix — genuinely removing the allocator churn — is swapping the
+book's container**, exactly as `orderbook.hpp`'s own comment anticipates (a flat
+sorted container or a fixed-point price-ladder array). That's a real change to core
+engine code, not a benchmark, and hasn't been made here.
+
+**So: is 301,056 ticks/sec good?** Framed against an arbitrary "1M ticks/sec" target,
+no. Framed against what this engine actually needs to sustain — XRPL closes a ledger
+every ~4 seconds, i.e. ~0.25 ticks/sec — 301,056/sec is roughly **1.2 million times**
+the required rate. That headroom number is the honest, defensible claim: capacity to
+absorb catch-up bursts, run several instruments concurrently, or survive a stall and
+still keep up, comfortably, on unremarkable hardware — not a fabricated "1M ticks/sec"
+that would have needed a workload this engine doesn't actually run to be true.
+
+### 5.5 React math-layer self-tests
 
 `web/scripts/selftest.mjs`, 82 checks across every `web/src/lib/` module: **82
 passed, 0 failed**, on the run that shipped in this commit. Covers put-call parity,
@@ -257,9 +323,17 @@ Compiled with: clang++ -std=c++20 -O2 -Wall -Wextra
 ```
 
 ```bash
-# Benchmarks
+# Per-operation latency
 clang++ -std=c++20 -O2 -Wall -Wextra -Icpp/include cpp/bench/bench_main.cpp -o build/bench
 ./build/bench
+
+# Sustained throughput (full tick + real cross-thread SPSC producer/consumer)
+clang++ -std=c++20 -O2 -Wall -Wextra -Icpp/include cpp/bench/bench_throughput.cpp -o build/bench_throughput -pthread
+./build/bench_throughput
+
+# Cost attribution (clear() vs upsert() vs mid/microprice vs on_mark)
+clang++ -std=c++20 -O2 -Wall -Wextra -Icpp/include cpp/bench/bench_decompose.cpp -o build/bench_decompose
+./build/bench_decompose
 
 # End-to-end trace
 clang++ -std=c++20 -O2 -Wall -Wextra -Icpp/include cpp/src/sim_main.cpp -o build/sim -pthread
