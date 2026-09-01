@@ -256,10 +256,20 @@ SpscRingBuffer, real cross-thread producer/consumer:
   = 38403041 messages/sec consumed
 ```
 
-The messaging layer clears a million messages/sec by close to 40×. The full simulated
-tick — `clear()` the book, re-quote 6 levels/side, read mid and microprice, mark the
-risk engine, matching `sim_main.cpp`'s actual per-ledger workload — does not reach a
-million ticks/sec; it measures 301,056/sec.
+**Rerun 5 times total across this session, not treated as settled after one sample:**
+full-tick throughput ranged **300,000–584,000/sec** (median ~557,000/sec across 4
+consecutive fresh runs; the 301,056 figure above was the single slowest sample,
+apparently caught under heavier load on this shared sandbox at the time). Ring-buffer
+throughput varied more, 20.2M–41.3M messages/sec, with drop counts moving inversely
+with contention — both consistent with real OS-scheduling variance on unpinned
+general-purpose hardware, not a flaky benchmark. **The range is the honest number
+here, not any single run inside it.**
+
+The messaging layer clears a million messages/sec by 20-40×, comfortably at every
+sampled point. The full simulated tick — `clear()` the book, re-quote 6 levels/side,
+read mid and microprice, mark the risk engine, matching `sim_main.cpp`'s actual
+per-ledger workload — does not reliably reach a million ticks/sec on this container;
+it measures in the 300K-580K/sec range.
 
 **That gap was worth attributing precisely rather than waving at.**
 `cpp/bench/bench_decompose.cpp` isolates each component:
